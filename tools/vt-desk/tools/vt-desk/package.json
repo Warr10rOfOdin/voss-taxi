@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "vt-patch-desk": "file:../.."
+  }
+}

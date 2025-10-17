@@ -1,0 +1,62 @@
+import express from 'express';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import multer from 'multer';
+import { spawn } from 'child_process';
+
+const app = express();
+const PORT = process.env.PORT || 5177;
+const ROOT = process.cwd();
+const PATCHES_DIR = path.join(ROOT, 'patches');
+const RELEASES_DIR = path.join(ROOT, 'releases');
+
+const CSP = [
+  "default-src 'self'",
+  "connect-src 'self' http://localhost:5177",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'"
+].join('; ');
+
+app.use((req,res,next)=>{ res.setHeader('Content-Security-Policy', CSP); next(); });
+app.use(cors());
+app.use(express.json({limit:'10mb'}));
+
+// HEAD / so header checks work
+app.head('/', (req,res)=>{ res.setHeader('Content-Security-Policy', CSP); res.status(200).end(); });
+// helper: echo CSP
+app.get('/csp', (req,res)=>{ res.type('text/plain').send(CSP); });
+
+// UI
+app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'ui')));
+
+// Chrome DevTools probe
+app.get('/.well-known/appspecific/com.chrome.devtools.json', (req,res)=>{ res.type('application/json').send('{}'); });
+
+function listPatches(){ if (!fs.existsSync(PATCHES_DIR)) return []; return fs.readdirSync(PATCHES_DIR).filter(f=> f.endsWith('.json')).map(f=> ({ file: `patches/${f}`, id: (()=>{ try{ const mf = JSON.parse(fs.readFileSync(path.join(PATCHES_DIR,f),'utf8')); return mf.id || f; }catch{return f;} })() })); }
+function listSnapshots(){ if (!fs.existsSync(RELEASES_DIR)) return []; return fs.readdirSync(RELEASES_DIR).filter(n=> n.endsWith('-snapshot')).sort().map(n=> ({ name:n, path:`releases/${n}` })); }
+function runNode(args, cwd){ return new Promise((resolve)=>{ const p = spawn(process.execPath, args, { cwd, shell:false }); let out=''; let err=''; p.stdout.on('data', d=> out += d.toString()); p.stderr.on('data', d=> err += d.toString()); p.on('close', code=> resolve({code, out, err})); }); }
+async function copyDir(src,dst){ fs.mkdirSync(dst,{recursive:true}); for(const ent of fs.readdirSync(src,{withFileTypes:true})){ const s = path.join(src, ent.name); const d = path.join(dst, ent.name); if (ent.isDirectory()) await copyDir(s,d); else fs.copyFileSync(s,d); } }
+function rimraf(p){ if (!fs.existsSync(p)) return; for(const ent of fs.readdirSync(p,{withFileTypes:true})){ const fp = path.join(p, ent.name); if (ent.isDirectory()) rimraf(fp); else fs.unlinkSync(fp); } fs.rmdirSync(p); }
+
+app.get('/api/patches', (req,res)=> res.json({ items:listPatches() }));
+const upload = multer({ dest: path.join(process.cwd(),'tmp') });
+app.post('/api/upload', upload.single('file'), (req,res)=>{ try{ if (!fs.existsSync(PATCHES_DIR)) fs.mkdirSync(PATCHES_DIR, {recursive:true}); if (req.file){ const to = path.join(PATCHES_DIR, req.file.originalname.replace(/[^A-Za-z0-9._-]/g,'')); fs.renameSync(req.file.path, to); return res.json({ ok:true, file:`patches/${path.basename(to)}` }); } if (req.body && req.body.name && req.body.content){ const to = path.join(PATCHES_DIR, req.body.name.replace(/[^A-Za-z0-9._-]/g,'')); fs.writeFileSync(to, req.body.content, 'utf8'); return res.json({ ok:true, file:`patches/${path.basename(to)}` }); } return res.status(400).json({ ok:false, error:'No file or body' }); }catch(e){ return res.status(500).json({ ok:false, error:String(e) }); } });
+
+app.post('/api/apply', async (req,res)=>{ const { manifestPath, dry } = req.body || {}; if (!manifestPath) return res.status(400).json({ ok:false, error:'manifestPath required' }); const args = ['tools/vt/patcher.cjs', manifestPath]; if (dry) args.push('--dry'); const r = await runNode(args, ROOT); res.json({ ok: r.code===0, code:r.code, stdout:r.out, stderr:r.err }); });
+
+app.get('/api/snapshots', (req,res)=> res.json({ items: listSnapshots() }));
+app.post('/api/snapshot', async (req,res)=>{ const r = await runNode(['tools/vt/snapshot.cjs','releases'], ROOT); res.json({ ok:r.code===0, code:r.code, stdout:r.out, stderr:r.err }); });
+app.post('/api/rollback', async (req,res)=>{ const { snapshotName } = req.body || {}; if (!snapshotName) return res.status(400).json({ ok:false, error:'snapshotName required' }); const src = path.join(RELEASES_DIR, snapshotName); if (!fs.existsSync(src)) return res.status(404).json({ ok:false, error:'snapshot not found' }); const ts=new Date().toISOString().replace(/[:.]/g,'-'); const backup = path.join(RELEASES_DIR, `_backup-current-${ts}`); fs.mkdirSync(backup, {recursive:true}); for(const ent of fs.readdirSync('.', {withFileTypes:true})){ if (['node_modules','.next','.git','releases'].includes(ent.name)) continue; const s = path.join('.', ent.name); const d = path.join(backup, ent.name); if (ent.isDirectory()) await copyDir(s,d); else fs.copyFileSync(s,d); } for(const ent of fs.readdirSync(src, {withFileTypes:true})){ const s = path.join(src, ent.name); const d = path.join('.', ent.name); if (ent.isDirectory()){ if (fs.existsSync(d)) rimraf(d); await copyDir(s,d); } else { fs.copyFileSync(s,d); } } res.json({ ok:true, backup: path.basename(backup) }); });
+
+app.get('/api/changelogs', (req,res)=>{ const files = fs.readdirSync('.', {withFileTypes:true}).filter(e=> e.isFile() && /^CHANGELOG-.*\.md$/i.test(e.name)).map(e=> e.name).sort(); res.json({ items: files }); });
+app.get('/api/changelog', (req,res)=>{ const name = req.query.name; if (!name || typeof name!=='string') return res.status(400).send('name required'); if (!/^[A-Za-z0-9._-]+$/.test(name)) return res.status(400).send('bad name'); if (!fs.existsSync(name)) return res.status(404).send('not found'); res.type('text/markdown').send(fs.readFileSync(name,'utf8')); });
+
+app.post('/api/git/push', async (req,res)=>{ const { message, tag } = req.body || {}; function run(cmd, args){ return new Promise(resolve=>{ const p=spawn(cmd,args,{cwd:ROOT, shell:false}); let out=''; let err=''; p.stdout.on('data',d=> out+=d.toString()); p.stderr.on('data',d=> err+=d.toString()); p.on('close',code=> resolve({code,out,err})); })} const add=await run('git',['add','-A']); const commit=await run('git',['commit','-m', message || 'VT Patch Desk commit']); let tagging = {code:0,out:'',err:''}; if (tag) tagging=await run('git',['tag', tag]); const push=await run('git',['push','--follow-tags']); res.json({ ok: push.code===0, add, commit, tagging, push }); });
+
+app.listen(PORT, ()=> console.log(`VT Patch Desk running at http://localhost:${PORT}`));

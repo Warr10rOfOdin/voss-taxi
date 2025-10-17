@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VT Patch Desk</title>
+<style>
+  :root{ --bg:#0b0f1a; --card:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --pill:#101622; --txt:#eaeaf0; --acc:#76e3ff; }
+  html,body{margin:0;background:var(--bg);color:var(--txt);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial;}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px;}
+  h1{font-size:22px;margin:0 0 12px 0;}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));border:1px solid var(--border);border-radius:14px;padding:14px;flex:1;min-width:300px;box-shadow:0 14px 40px rgba(0,0,0,.2)}
+  button,.pill{background:var(--pill);border:1px solid var(--border);color:var(--txt);border-radius:10px;padding:8px 12px;cursor:pointer}
+  input,select,textarea{background:var(--pill);border:1px solid var(--border);color:var(--txt);border-radius:10px;padding:8px 10px;width:100%}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-top:1px solid var(--border);padding:6px 8px;text-align:left}
+  .muted{opacity:.75}
+  .tag{display:inline-block;padding:2px 6px;border-radius:6px;border:1px solid var(--border);margin-right:6px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:800px){ .cols{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>VT Patch Desk</h1>
+
+    <div class="row">
+      <div class="card" style="flex:2">
+        <h3>Patches</h3>
+        <div class="row" style="align-items:center">
+          <input id="patchFile" type="file" />
+          <button onclick="upload()">Upload patch</button>
+          <button onclick="reload()">Reload list</button>
+          <button onclick="snapshot()">Create snapshot</button>
+        </div>
+        <div style="height:10px"></div>
+        <table id="patchTable"><thead><tr><th>ID</th><th>File</th><th>Actions</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Snapshots</h3>
+        <select id="snapSel"></select>
+        <div style="height:8px"></div>
+        <button onclick="rollback()">Rollback to selection</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h3>Apply selected patch</h3>
+        <div class="cols">
+          <div>
+            <label>Manifest path (from table):</label>
+            <input id="manifestPath" placeholder="patches/ALL-setup.json"/>
+          </div>
+          <div>
+            <label>Mode</label>
+            <select id="mode"><option value="dry">Dry run</option><option value="apply">Apply</option></select>
+          </div>
+        </div>
+        <div style="height:8px"></div>
+        <button onclick="applyPatch()">Run patcher</button>
+        <div style="height:8px"></div>
+        <pre id="out" class="muted" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre>
+      </div>
+
+      <div class="card">
+        <h3>Changelogs</h3>
+        <div class="row" style="align-items:center">
+          <select id="clSel" style="flex:1"></select>
+          <button onclick="loadCl()">Open</button>
+        </div>
+        <div style="height:8px"></div>
+        <pre id="cl" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Git push (optional)</h3>
+      <div class="cols">
+        <div><input id="msg" placeholder="Commit message"/></div>
+        <div><input id="tag" placeholder="Optional tag e.g. v1.215"/></div>
+      </div>
+      <div style="height:8px"></div>
+      <button onclick="gitPush()">Commit & Push</button>
+      <pre id="gitout" class="muted" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre>
+    </div>
+  </div>
+
+<script>
+async function j(url, opts){ const r = await fetch(url, Object.assign({headers:{'content-type':'application/json'}}, opts)); if(!r.ok){ throw new Error(await r.text()); } return await r.json(); }
+async function reload(){
+  const p = await j('/api/patches');
+  const tb = document.querySelector('#patchTable tbody'); tb.innerHTML='';
+  for(const it of p.items){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${it.id}</td><td class="muted">${it.file}</td>
+      <td><button onclick="document.getElementById('manifestPath').value='${it.file}'">Select</button></td>`;
+    tb.appendChild(tr);
+  }
+  const s = await j('/api/snapshots');
+  const sel = document.getElementById('snapSel'); sel.innerHTML='';
+  for(const it of s.items){ const o=document.createElement('option'); o.value=it.name; o.textContent=it.name; sel.appendChild(o); }
+  const cl = await j('/api/changelogs'); const clSel = document.getElementById('clSel'); clSel.innerHTML='';
+  for(const f of cl.items){ const o=document.createElement('option'); o.value=f; o.textContent=f; clSel.appendChild(o); }
+}
+async function upload(){
+  const inp = document.getElementById('patchFile');
+  if (!inp.files.length){ alert('Pick a JSON file'); return; }
+  const fd = new FormData(); fd.append('file', inp.files[0]);
+  const r = await fetch('/api/upload',{method:'POST', body:fd});
+  if(!r.ok){ alert('Upload failed'); return; }
+  await reload();
+}
+async function snapshot(){
+  const r = await j('/api/snapshot', {method:'POST', body: JSON.stringify({})});
+  alert('Snapshot: ' + (r.ok?'OK':'Failed'));
+  reload();
+}
+async function rollback(){
+  const name = document.getElementById('snapSel').value;
+  if(!name){ alert('No snapshot selected'); return; }
+  const r = await j('/api/rollback',{method:'POST', body: JSON.stringify({ snapshotName:name })});
+  alert('Rollback done. Backup: '+ r.backup);
+}
+async function applyPatch(){
+  const manifestPath = document.getElementById('manifestPath').value.trim();
+  const dry = document.getElementById('mode').value === 'dry';
+  const r = await j('/api/apply',{method:'POST', body: JSON.stringify({ manifestPath, dry })});
+  const pre = document.getElementById('out'); pre.textContent = (r.stdout||'') + '\n' + (r.stderr||'');
+  if(!r.ok) alert('Patch exited with code ' + r.code);
+}
+async function loadCl(){
+  const name = document.getElementById('clSel').value;
+  const r = await fetch('/api/changelog?name='+encodeURIComponent(name));
+  document.getElementById('cl').textContent = await r.text();
+}
+async function gitPush(){
+  const message = document.getElementById('msg').value || 'VT Desk commit';
+  const tag = document.getElementById('tag').value || '';
+  const r = await j('/api/git/push', {method:'POST', body: JSON.stringify({message, tag: tag||undefined})});
+  document.getElementById('gitout').textContent = JSON.stringify(r, null, 2);
+  if(!r.ok) alert('Push failed; see output below.');
+}
+reload();
+</script>
+</body>
+</html>

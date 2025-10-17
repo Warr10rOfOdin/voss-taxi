@@ -1,0 +1,30 @@
+@'
+# dependencies
+**/node_modules/
+**/package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# next / expo / builds
+**/.next/
+**/dist/
+**/build/
+**/.expo/
+**/.expo-shared/
+**/ios/build/
+**/android/app/build/
+**/.vercel/
+**/.eas/
+
+# local tools & caches
+tools/vt-desk/tmp/
+tools/vt-desk/ui/*.map
+
+# snapshots/backups from Patch Desk
+releases/
+!releases/.gitkeep
+
+# misc
+.DS_Store
+Thumbs.db
+'@ | Set-Content -Encoding utf8 .gitignore

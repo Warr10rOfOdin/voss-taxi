@@ -1,0 +1,19 @@
+{
+  "name": "voss-taxi-monorepo",
+  "private": true,
+  "version": "1.214",
+  "scripts": {
+    "setup": "npm --prefix apps/web i --no-audit --no-fund && npm --prefix apps/mobile i --no-audit --no-fund",
+    "dev": "npm --prefix apps/web run dev",
+    "build": "npm --prefix apps/web run build",
+    "start": "npm --prefix apps/web run start",
+    "mobile:start": "npm --prefix apps/mobile run start",
+    "mobile:android": "npm --prefix apps/mobile run android",
+    "mobile:ios": "npm --prefix apps/mobile run ios",
+    "mobile:web": "npm --prefix apps/mobile run web",
+    "patch:dry": "node tools/vt/patcher.cjs patches/ALL-setup.json --dry",
+    "patch:all": "node tools/vt/patcher.cjs patches/ALL-setup.json",
+    "snapshot": "node tools/vt/snapshot.cjs releases",
+    "rollback": "node tools/vt/rollback.cjs releases"
+  }
+}

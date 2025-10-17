@@ -1,0 +1,22 @@
+
+:root{ --bg:#090d17; --glass:rgba(255,255,255,.06); --glass2:rgba(255,255,255,.09); --border:rgba(255,255,255,.12); --txt:#eaeaf0; --muted:#b7c0cf; --accent:#76e3ff; --pill:#101622; --hover:rgba(255,255,255,.12); }
+html,body{ margin:0; background:radial-gradient(1200px 600px at 10% 0%, rgba(80,140,255,.15), transparent), radial-gradient(800px 500px at 90% 10%, rgba(255,80,200,.12), transparent), var(--bg); color:var(--txt); font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial; }
+a{ color:inherit; text-decoration:none; }
+.container{ max-width:1200px; margin:0 auto; padding:24px; }
+.nav{ position:sticky; top:0; z-index:4000; backdrop-filter: blur(10px); background: linear-gradient(180deg, rgba(9,13,23,.75), rgba(9,13,23,.35) 65%, rgba(9,13,23,0)); padding:12px 24px; border-bottom:1px solid var(--border); }
+.pills{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.pill{ padding:8px 14px; border-radius:999px; background:linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.04)); border:1px solid var(--border); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); cursor:pointer; user-select:none; transition:transform .08s ease; }
+.pill:hover{ transform:translateY(-1px); background:var(--glass2); }
+.pill.active{ outline:2px solid rgba(118,227,255,.45); }
+.right{ margin-left:auto; display:flex; gap:10px; align-items:center; }
+.dropdown{ position:absolute; top:52px; left:0; padding:10px; border-radius:16px; background: rgba(13,18,30,.92); border:1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,.45); z-index:5000; min-width:240px; }
+.dd-item{ padding:10px 12px; border-radius:12px; border:1px solid transparent; display:block; }
+.dd-item:hover{ background:var(--hover); border-color:var(--border); }
+.subtabs{ margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; }
+.card{ background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); border:1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,.25); border-radius:18px; padding:16px; }
+.grid{ display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
+.h1{ font-weight:900; font-size:28px; letter-spacing:.2px; }
+.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
+.btn{ background:var(--pill); border:1px solid var(--border); border-radius:12px; padding:8px 12px; color:var(--txt); }
+.badge{ padding:4px 8px; border-radius:8px; background:rgba(118,227,255,.12); border:1px solid rgba(118,227,255,.35); color:#b7f1ff; }
+.zTop{ z-index:6000; position:relative; }
