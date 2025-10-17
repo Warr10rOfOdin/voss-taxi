@@ -1,27 +1,46 @@
-import { NextRequest, NextResponse } from 'next/server';
-type Entry = any;
-const MAX = 5000;
-const buf: Entry[] = [];
-const subs = new Set<(e:Entry)=>void>();
-function push(e:Entry){ buf.push(e); if (buf.length > MAX) buf.shift(); subs.forEach(f=> f(e)); }
-export async function POST(req: NextRequest){
-  try{ const body = await req.json(); push(body); return NextResponse.json({ ok:true }); }
-  catch(e:any){ return NextResponse.json({ ok:false, error: String(e?.message||e) }, { status:400 }); }
+import { NextRequest } from 'next/server';
+import { publish, snapshot, sseRegister, sseUnregister } from '../../../lib/log/state';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function headers() {
+  return {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  };
 }
-export async function GET(req: NextRequest){
-  const u = new URL(req.url);
-  const fmt = u.searchParams.get('format');
-  if (fmt === 'ndjson'){
-    const nd = buf.map(e=> JSON.stringify(e)).join('\n');
-    return new NextResponse(nd, { headers:{ 'content-type':'application/x-ndjson' } });
-  }
-  if (fmt === 'csv'){
-    const cols = ['ts','level','module','fn','msg','cid','tx','userId'];
-    const esc = (v:any)=>{ const s = v==null? '' : String(v).replace(/"/g,'""'); return /[",\n]/.test(s) ? '"'+s+'"' : s; };
-    const rows = buf.map((r:any)=> cols.map(k=> esc(r[k])).join(','));
-    const csv = cols.join(',') + '\n' + rows.join('\n');
-    return new NextResponse(csv, { headers:{ 'content-type':'text/csv' } });
-  }
-  return NextResponse.json({ items: buf.slice(-1000) });
+
+export async function GET(req: NextRequest) {
+  const enc = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (s: string) => controller.enqueue(enc.encode(s));
+      // initial snapshot
+      for (const e of snapshot(200)) send(`data: ${JSON.stringify(e)}\n\n`);
+      // live
+      const id = sseRegister(send);
+      const ping = setInterval(() => send(': ping\n\n'), 15000);
+      (controller as any)._cleanup = () => { clearInterval(ping); sseUnregister(id); };
+    },
+    cancel() { const fn = (this as any)._cleanup; if (fn) fn(); }
+  });
+  return new Response(stream, { headers: headers() });
 }
-export const __logState = { subs, push, buf };
+
+export async function POST(req: NextRequest) {
+  // allow posting a log entry for testing/dev
+  const body = await req.json().catch(() => ({}));
+  const entry = {
+    ts: new Date().toISOString(),
+    level: (body.level ?? 'INFO') as any,
+    msg: body.msg ?? 'manual log',
+    cid: body.cid,
+    tx: body.tx,
+    ctx: body.ctx ?? {}
+  };
+  publish(entry);
+  return new Response('ok');
+}
